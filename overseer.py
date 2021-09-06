@@ -8,10 +8,8 @@ class OverSeer():
     def __init__(self, cfg_path: str):
         self.monitors = []
         self.parse_cfg(cfg_path)
-        print("Processes created!")
-        self.create_pool()
+        self.create_queues()
 
-    # * Seems to be functioning as expected, reading in the config file correctly
     def parse_cfg(self, cfg_path):
         config = configparser.ConfigParser()
         config.read(cfg_path)
@@ -26,20 +24,27 @@ class OverSeer():
             # Add the monitor to the list of monitors
             self.monitors.append(file_monitor.FileMonitor(name=monitor, type=config[monitor]['monitor_type'], data=monitor_data))
 
-    # TODO Fix from here down
-    def start_monitors(self, monitor_id : int):
-        if __name__ == '__main__':
-            self.monitors[monitor_id].start()
+    def create_queues(self):
+        self.queue = multiprocessing.JoinableQueue()
+        self.status = multiprocessing.Queue()
+        
+        # Start monitors
+        print(f"Creating {len(self.monitors)} monitors")
+        
+        monitor_processes = [file_monitor.MonitorProcess(self.queue, self.status)
+                             for i in range(0,len(self.monitors))]
+        
+        for process in monitor_processes:
+            process.start()
     
-    def create_pool(self):
-        
-        # * It appears that this line is working as expected
-        pool = multiprocessing.Pool(processes=len(self.monitors))
-        
-        """
-        ? Not very sure why this doesn't work, something about starting while the other  
-        ? process is still in bootstrap phase?
-        """
-        pool.map(self.start_monitors, range(0,self.monitors.count))
+        for monitor in self.monitors:
+            self.queue.put(file_monitor.FileMonitor(monitor.name, monitor.type, monitor.data))            
 
-overseer = OverSeer(cfg_path=r"file_monitor_cfg.ini")
+        for process in monitor_processes:
+            self.queue.put(None)
+        
+        self.queue.join()
+        
+
+if __name__ == '__main__':
+    overseer = OverSeer(cfg_path=r"file_monitor_cfg.ini")
